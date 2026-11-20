@@ -19,14 +19,14 @@
 Script(1) :
 -------------------------------------------------------
 
-powershell -ExecutionPolicy Bypass -File ".\\Install-HX711.ps1"
+`` powershell -ExecutionPolicy Bypass -File ".\\Install-HX711.ps1"  ``
 
 =========================================================================
 
 Script(2) :
 ----------------------------------------------------------
 
-powershell -ExecutionPolicy Bypass -File ".\\Install-LoadCell.ps1"
+``powershell -ExecutionPolicy Bypass -File ".\\Install-LoadCell.ps1"``
 
 
 
