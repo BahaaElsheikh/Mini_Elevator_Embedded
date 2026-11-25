@@ -5,12 +5,12 @@
 
 /*
  * ============================================================================
- * TEAM 3 REQUEST HANDLER - FIFO ARRAY QUEUE SPECIFICATION
+ * TEAM 3 REQUEST HANDLER - LOOK/SCAN ELEVATOR SCHEDULER
  * ============================================================================
  * Architecture Rules:
  *   - Uses a simple fixed-size array: static unsigned char requests[FLOOR_COUNT]
  *   - No bitmask, no dynamic memory, no linked list, no bitwise complexity
- *   - FIFO (First-In, First-Out) serving order
+ *   - Supports both FIFO retrieval and LOOK/SCAN directional scheduling
  *   - Rejects out-of-range floors (< FLOOR_0 or > FLOOR_3)
  *   - Ignores duplicate calls
  *   - Array shifts left upon item removal
@@ -31,6 +31,9 @@ unsigned char RequestHandler_Contains(unsigned char floor);
 
 /* Returns the earliest pending floor (head of queue) or NO_FLOOR if empty */
 unsigned char RequestHandler_GetNext(void);
+
+/* Returns optimal next floor according to LOOK/SCAN directional scheduling */
+unsigned char RequestHandler_GetNextOptimal(unsigned char current_floor, signed char direction);
 
 /* Deletes the specified floor from queue and shifts remaining entries left */
 void RequestHandler_Remove(unsigned char floor);

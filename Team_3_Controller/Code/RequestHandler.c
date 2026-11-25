@@ -81,6 +81,79 @@ unsigned char RequestHandler_GetNext(void) {
 }
 
 /*
+ * Returns the next floor to service using the LOOK/SCAN elevator algorithm.
+ * - If direction is DIR_UP:
+ *     First checks for pending floors above current_floor (ascending: current_floor + 1 .. FLOOR_COUNT - 1).
+ *     If none, reverses and checks for pending floors below current_floor (descending: current_floor - 1 .. 0).
+ * - If direction is DIR_DOWN:
+ *     First checks for pending floors below current_floor (descending: current_floor - 1 .. 0).
+ *     If none, reverses and checks for pending floors above current_floor (ascending: current_floor + 1 .. FLOOR_COUNT - 1).
+ * - If direction is DIR_STOP:
+ *     Uses the oldest pending request (requests[0]) to establish initial direction,
+ *     then applies the corresponding directional scan so floors along the way
+ *     are visited first.
+ * If no requests are pending, returns NO_FLOOR.
+ */
+unsigned char RequestHandler_GetNextOptimal(unsigned char current_floor, signed char direction) {
+    unsigned char f;
+    signed char scan_dir = direction;
+
+    if (request_count == 0) {
+        return NO_FLOOR;
+    }
+
+    if (current_floor == NO_FLOOR || !IS_VALID_FLOOR(current_floor)) {
+        return requests[0];
+    }
+
+    /* If current floor is requested, service it immediately */
+    if (RequestHandler_Contains(current_floor) != 0) {
+        return current_floor;
+    }
+
+    /* If stationary, determine initial direction from the oldest request */
+    if (scan_dir == DIR_STOP) {
+        if (requests[0] > current_floor) {
+            scan_dir = DIR_UP;
+        } else if (requests[0] < current_floor) {
+            scan_dir = DIR_DOWN;
+        } else {
+            return requests[0];
+        }
+    }
+
+    if (scan_dir == DIR_UP) {
+        /* Check for pending requests above current_floor (lowest first) */
+        for (f = current_floor + 1; f < FLOOR_COUNT; f++) {
+            if (RequestHandler_Contains(f) != 0) {
+                return f;
+            }
+        }
+        /* None above; reverse and check below current_floor (highest first) */
+        for (f = current_floor; f > 0; f--) {
+            if (RequestHandler_Contains(f - 1) != 0) {
+                return f - 1;
+            }
+        }
+    } else if (scan_dir == DIR_DOWN) {
+        /* Check for pending requests below current_floor (highest first) */
+        for (f = current_floor; f > 0; f--) {
+            if (RequestHandler_Contains(f - 1) != 0) {
+                return f - 1;
+            }
+        }
+        /* None below; reverse and check above current_floor (lowest first) */
+        for (f = current_floor + 1; f < FLOOR_COUNT; f++) {
+            if (RequestHandler_Contains(f) != 0) {
+                return f;
+            }
+        }
+    }
+
+    return requests[0];
+}
+
+/*
  * Remove a specific floor from the queue and shift all remaining
  * elements one position to the left.
  */

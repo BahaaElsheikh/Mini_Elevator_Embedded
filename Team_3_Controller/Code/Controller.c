@@ -29,6 +29,7 @@ static unsigned char controller_state = STATE_WAIT_FOR_FLOOR;
 static unsigned char current_floor    = NO_FLOOR;
 static unsigned char target_floor     = NO_FLOOR;
 static signed char   direction        = DIR_STOP;
+static signed char   last_direction   = DIR_STOP;
 
 /* Internal millisecond/tick counters for timing states */
 static unsigned int state_ticks       = 0;
@@ -73,6 +74,7 @@ void Controller_Init(void) {
     current_floor    = NO_FLOOR;
     target_floor     = NO_FLOOR;
     direction        = DIR_STOP;
+    last_direction   = DIR_STOP;
 
     state_ticks      = 0;
     startup_ticks    = 0;
@@ -175,7 +177,7 @@ void Controller_Update(void) {
 
             /* Service next queued request if present */
             if (RequestHandler_HasRequests() != 0) {
-                target_floor = RequestHandler_GetNext();
+                target_floor = RequestHandler_GetNextOptimal(current_floor, last_direction);
 
                 if (target_floor == NO_FLOOR) {
                     break;
@@ -187,19 +189,25 @@ void Controller_Update(void) {
                     Inputs_Buzzer(BUZZER_ARRIVAL);
                     target_floor = NO_FLOOR;
                     direction = DIR_STOP;
+                    last_direction = DIR_STOP;
                 }
                 /* Scenario: Target is above current floor */
                 else if (target_floor > current_floor) {
                     direction = DIR_UP;
+                    last_direction = DIR_UP;
                     Brake_Release();
                     Controller_EnterState(STATE_BRAKE_RELEASE);
                 }
                 /* Scenario: Target is below current floor */
                 else if (target_floor < current_floor) {
                     direction = DIR_DOWN;
+                    last_direction = DIR_DOWN;
                     Brake_Release();
                     Controller_EnterState(STATE_BRAKE_RELEASE);
                 }
+            }
+            else {
+                last_direction = DIR_STOP;
             }
             break;
 
@@ -208,6 +216,14 @@ void Controller_Update(void) {
          * Servo commanded to release mechanical brake; wait settling period.
          * -------------------------------------------------------------------- */
         case STATE_BRAKE_RELEASE:
+            /* If a closer floor along the path of travel was requested while releasing brake, optimize target */
+            if (current_floor != NO_FLOOR && direction != DIR_STOP) {
+                unsigned char optimal = RequestHandler_GetNextOptimal(current_floor, direction);
+                if (optimal != NO_FLOOR) {
+                    target_floor = optimal;
+                }
+            }
+
             if (state_ticks >= BRAKE_RELEASE_TICKS) {
                 travel_ticks = 0;
                 if (direction == DIR_UP) {
@@ -247,8 +263,10 @@ void Controller_Update(void) {
                 break;
             }
 
-            /* Check if target floor Hall sensor has tripped */
-            if (current_floor == target_floor) {
+            /* Check if target floor reached OR intermediate requested floor reached */
+            if (current_floor != NO_FLOOR &&
+               (current_floor == target_floor || RequestHandler_Contains(current_floor) != 0)) {
+                target_floor = current_floor;
                 Motor_Stop();
                 Controller_EnterState(STATE_STOPPING);
             }
@@ -274,8 +292,10 @@ void Controller_Update(void) {
                 break;
             }
 
-            /* Check if target floor Hall sensor has tripped */
-            if (current_floor == target_floor) {
+            /* Check if target floor reached OR intermediate requested floor reached */
+            if (current_floor != NO_FLOOR &&
+               (current_floor == target_floor || RequestHandler_Contains(current_floor) != 0)) {
+                target_floor = current_floor;
                 Motor_Stop();
                 Controller_EnterState(STATE_STOPPING);
             }
@@ -306,6 +326,7 @@ void Controller_Update(void) {
                     RequestHandler_Remove(target_floor);
                     Inputs_Buzzer(BUZZER_ARRIVAL);
                     target_floor = NO_FLOOR;
+                    last_direction = direction;
                     direction = DIR_STOP;
                     Controller_EnterState(STATE_IDLE);
                 }

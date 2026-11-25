@@ -4,15 +4,15 @@
 Team 3 serves as the master controller and systems integrator for the 4-floor Mini Elevator.
 Team 3 implements:
 - **Finite State Machine (FSM)**: Safe, deterministic state-driven elevator dispatching.
-- **Request Handler**: Deterministic FIFO request queue using a fixed-size array (no bitmasks, no dynamic memory).
+- **Request Handler**: LOOK/SCAN directional elevator scheduler using a simple fixed-size array (no bitmasks, no dynamic memory). Servicing floors on the way (e.g., 1 -> 4 -> 2 visits 1 -> 2 -> 4).
 - **Safety Supervision**: Pre-flight weight verification, in-flight stall timeout, sensor conflict detection, and mechanical brake interlocking.
 - **Master Super-Loop**: Coordinated 10 ms non-blocking update of all subsystem modules.
 
 ---
 
-## 2. Request Handler Implementation (Simplified FIFO Array)
+## 2. Request Handler Implementation (LOOK/SCAN Directional Array)
 
-Per architectural guidelines, the complex bitmask and nearest-floor optimization were replaced with a simple, robust FIFO linear array:
+The request queue uses a simple, robust fixed-size array while implementing classic **LOOK/SCAN directional scheduling**:
 
 ```c
 static unsigned char requests[FLOOR_COUNT];
@@ -20,12 +20,13 @@ static unsigned char request_count = 0;
 ```
 
 ### Key Principles:
-1. **FIFO Order**: Requests are served in the exact order received (`GetNext()` returns `requests[0]`).
-2. **Valid Floors**: Only `FLOOR_0` (0), `FLOOR_1` (1), `FLOOR_2` (2), and `FLOOR_3` (3) are accepted.
-3. **No Duplicates**: `RequestHandler_Add()` ignores requests for floors already in the queue.
-4. **Capacity Bounds**: Maximum capacity is `FLOOR_COUNT` (4). Further requests are ignored until space frees.
-5. **Array Compaction**: When `RequestHandler_Remove(floor)` is executed, all subsequent elements shift left by one position, maintaining continuous FIFO ordering.
-6. **Empty State**: When `request_count == 0`, `RequestHandler_GetNext()` safely returns `NO_FLOOR` (255).
+1. **LOOK/SCAN Directional Order**: When moving in a given direction (e.g. UP), pending floors along that path are serviced in order (e.g. Floor 2 before Floor 4) before reversing direction.
+2. **Intermediate Interception**: If a request is received for an intermediate floor while traveling towards a further floor, the elevator stops at the intermediate floor first.
+3. **Valid Floors**: Only `FLOOR_0` (0), `FLOOR_1` (1), `FLOOR_2` (2), and `FLOOR_3` (3) are accepted.
+4. **No Duplicates**: `RequestHandler_Add()` ignores requests for floors already in the queue.
+5. **Capacity Bounds**: Maximum capacity is `FLOOR_COUNT` (4). Further requests are ignored until space frees.
+6. **Array Compaction**: When `RequestHandler_Remove(floor)` is executed, all subsequent elements shift left by one position.
+7. **Empty State**: When `request_count == 0`, `RequestHandler_GetNextOptimal()` safely returns `NO_FLOOR` (255).
 
 ---
 

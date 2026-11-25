@@ -398,9 +398,140 @@ void test_controller_scenarios(void) {
     printf("\n>> ALL 15 CONTROLLER SCENARIOS PASSED WITH ZERO ERRORS!\n");
 }
 
+/* ----------------------------------------------------------------------------
+ * LOOK/SCAN DIRECTIONAL ELEVATOR ALGORITHM TESTS
+ * (Verifies 1 -> 4 -> 2 executes 1 -> 2 -> 4)
+ * ---------------------------------------------------------------------------- */
+void test_elevator_look_algorithm(void) {
+    printf("\n--- Testing LOOK/SCAN Elevator Scheduling (1 -> 4 -> 2 => 1 -> 2 -> 4) ---\n");
+
+    /* Subtest A: RequestHandler unit test for optimal directional selection */
+    RequestHandler_Init();
+    /* Queue requests for Floor 3 (top) then Floor 1 (middle) while at Floor 0 */
+    RequestHandler_Add(FLOOR_3);
+    RequestHandler_Add(FLOOR_1);
+    assert(RequestHandler_GetCount() == 2);
+    /* At Floor 0, going UP: should choose FLOOR_1 first even though FLOOR_3 was queued first */
+    assert(RequestHandler_GetNextOptimal(FLOOR_0, DIR_STOP) == FLOOR_1);
+    assert(RequestHandler_GetNextOptimal(FLOOR_0, DIR_UP) == FLOOR_1);
+
+    /* At Floor 3, going DOWN with requests [FLOOR_0, FLOOR_2]: should choose FLOOR_2 first */
+    RequestHandler_Clear();
+    RequestHandler_Add(FLOOR_0);
+    RequestHandler_Add(FLOOR_2);
+    assert(RequestHandler_GetNextOptimal(FLOOR_3, DIR_STOP) == FLOOR_2);
+    assert(RequestHandler_GetNextOptimal(FLOOR_3, DIR_DOWN) == FLOOR_2);
+    printf("Subtest A: Unit selection of nearest floor in direction of travel PASS\n");
+
+    /* Subtest B: Full Controller Run for Scenario 1 -> 4 -> 2 (FLOOR_0 -> FLOOR_3 -> FLOOR_1) */
+    mock_current_floor = FLOOR_0;
+    mock_sensor_fault = 0;
+    mock_is_overload = 0;
+    Controller_Init();
+    step_ticks(1);
+    assert(Controller_GetState() == STATE_IDLE);
+
+    /* Enqueue Floor 3, then Floor 1 */
+    mock_new_request_pending = 1;
+    mock_pending_requested_floor = FLOOR_3;
+    step_ticks(1);
+    mock_new_request_pending = 1;
+    mock_pending_requested_floor = FLOOR_1;
+    step_ticks(1);
+
+    /* Controller must target FLOOR_1 FIRST, not FLOOR_3! */
+    assert(Controller_GetTargetFloor() == FLOOR_1);
+    assert(Controller_GetState() == STATE_BRAKE_RELEASE);
+    printf("Subtest B1: Controller correctly selected Floor 1 as first target PASS\n");
+
+    /* Wait brake release and transition to MOVING_UP */
+    step_ticks(BRAKE_RELEASE_TICKS);
+    assert(Controller_GetState() == STATE_MOVING_UP);
+    assert(mock_motor_dir == DIR_UP);
+
+    /* Cabin leaves Floor 0 */
+    mock_current_floor = NO_FLOOR;
+    step_ticks(10);
+    assert(Controller_GetState() == STATE_MOVING_UP);
+
+    /* Cabin arrives at Floor 1 */
+    mock_current_floor = FLOOR_1;
+    step_ticks(1);
+    assert(Controller_GetState() == STATE_STOPPING);
+
+    /* Settle and engage brake at Floor 1 */
+    step_ticks(STOP_SETTLE_TICKS);
+    assert(Controller_GetState() == STATE_BRAKE_ENGAGE);
+    step_ticks(BRAKE_ENGAGE_TICKS);
+
+    /* At Floor 1: arrival chime must have sounded, and Floor 1 removed */
+    assert(mock_last_buzzer_event == BUZZER_ARRIVAL);
+    assert(RequestHandler_Contains(FLOOR_1) == 0);
+    assert(RequestHandler_Contains(FLOOR_3) == 1);
+    printf("Subtest B2: Cabin serviced Floor 1 first with arrival chime PASS\n");
+
+    /* Next tick: Controller in IDLE automatically continues UP to Floor 3 */
+    step_ticks(1);
+    assert(Controller_GetState() == STATE_BRAKE_RELEASE);
+    assert(Controller_GetTargetFloor() == FLOOR_3);
+    printf("Subtest B3: Controller smoothly continued journey UP toward Floor 3 PASS\n");
+
+    /* Wait brake release and move to Floor 3 */
+    step_ticks(BRAKE_RELEASE_TICKS);
+    assert(Controller_GetState() == STATE_MOVING_UP);
+    mock_current_floor = NO_FLOOR;
+    step_ticks(10);
+
+    /* Arrive at Floor 3 */
+    mock_current_floor = FLOOR_3;
+    step_ticks(1);
+    assert(Controller_GetState() == STATE_STOPPING);
+    step_ticks(STOP_SETTLE_TICKS);
+    assert(Controller_GetState() == STATE_BRAKE_ENGAGE);
+    step_ticks(BRAKE_ENGAGE_TICKS);
+
+    /* At Floor 3: arrival chime, Floor 3 removed, system now idle with zero pending calls */
+    assert(Controller_GetState() == STATE_IDLE);
+    assert(mock_last_buzzer_event == BUZZER_ARRIVAL);
+    assert(RequestHandler_HasRequests() == 0);
+    assert(Controller_GetTargetFloor() == NO_FLOOR);
+    printf("Subtest B4: Cabin completed trip at Floor 3 (Full 0 -> 1 -> 3 sequence) PASS\n");
+
+    /* Subtest C: In-flight intermediate request interception */
+    /* Elevator at Floor 0, request Floor 3 */
+    mock_current_floor = FLOOR_0;
+    Controller_Init();
+    step_ticks(1);
+    mock_new_request_pending = 1;
+    mock_pending_requested_floor = FLOOR_3;
+    step_ticks(1);
+    step_ticks(BRAKE_RELEASE_TICKS);
+    assert(Controller_GetState() == STATE_MOVING_UP);
+
+    /* While in flight between Floor 0 and 1, passenger requests Floor 1 */
+    mock_current_floor = NO_FLOOR;
+    step_ticks(5);
+    mock_new_request_pending = 1;
+    mock_pending_requested_floor = FLOOR_1;
+    step_ticks(1);
+
+    /* Cabin reaches Floor 1 sensor: must stop and intercept! */
+    mock_current_floor = FLOOR_1;
+    step_ticks(1);
+    assert(Controller_GetState() == STATE_STOPPING);
+    assert(Controller_GetTargetFloor() == FLOOR_1);
+    step_ticks(STOP_SETTLE_TICKS);
+    step_ticks(BRAKE_ENGAGE_TICKS);
+    assert(mock_last_buzzer_event == BUZZER_ARRIVAL);
+    printf("Subtest C: In-flight dynamic interception of Floor 1 PASS\n");
+
+    printf(">> ALL LOOK/SCAN ELEVATOR TESTS PASSED WITH ZERO ERRORS!\n");
+}
+
 int main(void) {
     test_request_handler();
     test_controller_scenarios();
+    test_elevator_look_algorithm();
     printf("\n============================================\n");
     printf("ALL SYSTEM VERIFICATION TESTS COMPLETED 100%%\n");
     printf("============================================\n");
